@@ -2,7 +2,6 @@
 
 ![Version](https://img.shields.io/badge/version-1.0-blue.svg)
 ![.NET 8.0](https://img.shields.io/badge/.NET-8.0-blueviolet.svg)
-![Build Status](https://github.com/NakanoMiku13/SocketMemory/actions/workflows/dotnet.yml/badge.svg)
 
 SocketMemory is a client-server socket-based application designed to create and play a word puzzle game. The server hosts the game, while the client connects to the server to play. The difficulty of the game is adjustable by specifying different grid sizes. This project demonstrates network programming using sockets in C#, as well as handling basic game logic between a server and multiple clients.
 
