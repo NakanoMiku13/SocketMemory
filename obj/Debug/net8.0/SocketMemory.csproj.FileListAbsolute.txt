@@ -27,3 +27,4 @@
 /mnt/ssd1tb/Codigos/SocketMemory/obj/Debug/net8.0/SocketMemory.pdb
 /mnt/ssd1tb/Codigos/SocketMemory/obj/Debug/net8.0/SocketMemory.genruntimeconfig.cache
 /mnt/ssd1tb/Codigos/SocketMemory/obj/Debug/net8.0/ref/SocketMemory.dll
+/mnt/ssd1tb/Codigos/SocketMemory/obj/Debug/net8.0/SocketMemory.sourcelink.json
