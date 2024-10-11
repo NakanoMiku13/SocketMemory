@@ -25,11 +25,25 @@ public class ClientSocket{
         _endpoint = endpoint;
         _isConnected = false;
     }
+    public ClientSocket(IPAddress ip, int port)
+    {
+        _loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
+        _logger = _loggerFactory.CreateLogger("Client socket");
+        IPEndPoint endpoint = new(ip, port);
+        _socket = new(
+            endpoint.AddressFamily,
+            SocketType.Stream,
+            ProtocolType.Tcp
+        );
+        _endpoint = endpoint;
+        _isConnected = false;
+    }
     public async Task<bool> Connect(){
         try{
             await _socket.ConnectAsync(_endpoint);
-            var t = await this.SendMessage(CLIENT);
             _isConnected = true;
+            var t = await this.SendMessage(CLIENT);
+            Console.WriteLine(t);
             return _isConnected;
         }catch(Exception ex){
             _logger.LogCritical($"Error trying to connect to the server: {ex.Message}");

@@ -11,30 +11,7 @@ class Program
 {
     private const string ACK = "|ACK|", CLIENT = "|CLIENT|", DIFF = "|DIFF|", ERROR = "|ERR|", EMPTY = "", DISCONNECT = "|END|",
     CREATEMAP = "|CREATE|", COORD = "|COORD|", NACK = "|NACK|", CLEAR = "|CLR|", ENDGAME = "|ENDGAME|";
-    private static List<string> _words = new()
-    {
-        "amor", "avión", "árbol", "amigo", "bebé", "baño", "boca", "cielo", "cama", "coche",
-        "casa", "carta", "ciudad", "conejo", "comida", "corazón", "cuadro", "dedo", "dormir", "dinero",
-        "elefante", "espejo", "estrella", "escuela", "familia", "flor", "gato", "grillo", "hombre", "helado",
-        "isla", "iglesia", "jardín", "jirafa", "jugador", "lámpara", "libro", "luna", "león", "madre",
-        "mano", "música", "nieve", "niño", "nube", "naranja", "oso", "oveja", "ojo", "pájaro",
-        "piedra", "perro", "playa", "pluma", "pelota", "papel", "puerta", "queso", "ratón", "reloj",
-        "sol", "silla", "sombrero", "sonrisa", "tigre", "tijeras", "tren", "tortuga", "teléfono", "tierra",
-        "uva", "viento", "ventana", "vaca", "zapato", "zanahoria", "agua", "aire", "bosque", "burro",
-        "camino", "cerdo", "ciervo", "diamante", "dulce", "delfín", "enfermera", "escritorio", "estrella", "fuego",
-        "fruta", "fuerte", "globo", "guitarra", "hermano", "hermana", "huevo", "iglu", "jirafa", "juego",
-        "lago", "ladrón", "leyenda", "llave", "limón", "luz", "magia", "mapa", "mariposa", "menta",
-        "miedo", "montaña", "muñeco", "nido", "nieve", "niña", "noche", "novela", "nube", "oído",
-        "olvido", "oro", "pájaro", "palabra", "pantalón", "pared", "parque", "paseo", "pequeño", "pez",
-        "pirata", "plato", "príncipe", "princesa", "profesor", "ratón", "regalo", "rey", "rica", "río",
-        "rosa", "sal", "sabor", "sangre", "secreto", "serpiente", "sirena", "sombrero", "sonido", "sopa",
-        "tabla", "techo", "tela", "templo", "tesoro", "torre", "trampa", "trueno", "tumba", "universo",
-        "vampiro", "vaso", "vecino", "velero", "veneno", "viento", "vida", "volcán", "vuelo", "yegua",
-        "zanahoria", "zapato", "zorro", "zoológico", "alga", "alondra", "anfibio", "asiento", "belleza", "beso",
-        "blanco", "caballo", "caramelo", "castillo", "cuento", "duende", "esfinge", "hada", "historia", "lago",
-        "laguna", "lámpara", "leyenda", "magia", "madera", "montaña", "nido", "paisaje", "perdido", "pesca",
-        "piedra", "silencio", "sombra", "trampa", "viento", "volcán", "zapato"
-    };
+    
     async static Task Main(string[] args)
     {
         using ILoggerFactory factory = LoggerFactory.Create(builder => builder.AddConsole());
@@ -85,139 +62,12 @@ class Program
         IPEndPoint endpoint = new(ip, port);
         if(isServer){
             logger.LogInformation("Starting server mode...");
-            using Socket listener = new(
-                endpoint.AddressFamily,
-                SocketType.Stream,
-                ProtocolType.Tcp
-            );
-            logger.LogInformation("Binding ip and port...");
-            listener.Bind(endpoint);
-            logger.LogInformation("Setting max 100 clients");
-            listener.Listen(100);
+            ServerSocket listener = new(ip, port);
             logger.LogInformation($"Server started at: {ip}:{port}");
             while(true){
                 logger.LogInformation("Waiting for new connection...");
-                var handler = await listener.AcceptAsync();
-                logger.LogInformation("Connection detected...");
-                try{
-                    var buffer = new byte[2048];
-                    var recieved = await handler.ReceiveAsync(buffer, SocketFlags.None);
-                    logger.LogInformation("Reading buffer...");
-                    var response = Encoding.UTF8.GetString(buffer, 0, recieved);
-                    logger.LogInformation("Client detected...");
-                    var bResponse = Encoding.UTF8.GetBytes(ACK);
-                    _ = await handler.SendAsync(bResponse, SocketFlags.None);
-                    bool endGame = false;
-                    Dictionary<string, string> keyWords = new();
-                    int totalWords = 0, foundedWords = 0;
-                    logger.LogInformation("Starting game...");
-                    string lastWord = "";
-                    int responsesFail = 0;
-                    while(!endGame){
-                        try{
-                            if(responsesFail > 5){
-                                logger.LogError("Client disconnect unsecure...");
-                                response = DISCONNECT;
-                            }
-                            if(response == DISCONNECT){
-                                logger.LogInformation("Client acquire disconnection...");
-                                bResponse = Encoding.UTF8.GetBytes(ACK);
-                                _ = await handler.SendAsync(bResponse, SocketFlags.None);
-                                logger.LogInformation("Client disconnected");
-                                endGame = true;
-                                logger.LogInformation("Ending game...");
-                                logger.LogInformation("Clearing data...");
-                                buffer = new byte[2048];
-                                recieved = 0;
-                                response = "";
-                                bResponse = new byte[2048];
-                                keyWords = new();
-                                logger.LogInformation("Data cleared...");
-                                endGame = true;
-                            }else if(response != EMPTY){
-                                responsesFail = 0;
-                                logger.LogInformation("Reading buffer...");
-                                string?[] responseSplitted;
-                                string code = "", content = "";
-                                logger.LogInformation("Getting code...");
-                                if(response.Contains("-")){
-                                    responseSplitted = response.Split('-');
-                                    code = responseSplitted[0];    
-                                    content = responseSplitted[1];
-                                }else{
-                                    code = response;
-                                }
-                                logger.LogInformation(code);
-                                if(code == DIFF){
-                                    logger.LogInformation("Setting difficult...");
-                                    difficult = Convert.ToInt32(content);
-                                    logger.LogInformation("Difficult set...");
-                                }else if(code == CREATEMAP){
-                                    responsesFail = 0;
-                                    logger.LogInformation("Setting map...");
-                                    Random rand = new();
-                                    int len = difficult / 2;
-                                    totalWords = len;
-                                    logger.LogInformation("Getting words...");
-                                    for(int x = 0; x < len; x++){
-                                        int wordPosition = rand.Next(0, _words.Count());
-                                        string word = _words.ElementAt(wordPosition);
-                                        string dictKey = "";
-                                        for(int y = 0; y < len; y++){
-                                            do{
-                                                int j = rand.Next(0, len);
-                                                int i = rand.Next(0, len);
-                                                dictKey = $"{i}:{j}";
-                                            }while(keyWords.ContainsKey(dictKey));
-                                            keyWords.Add(dictKey, word);
-                                            logger.LogInformation(dictKey);
-                                        }
-                                    }
-                                    logger.LogInformation("Map set...");
-                                    logger.LogInformation("Sending response to client...");
-                                    bResponse = Encoding.UTF8.GetBytes(ACK);
-                                    _ = await handler.SendAsync(bResponse, SocketFlags.None);
-                                    logger.LogInformation("Response sent...");
-                                }else if(code == COORD){
-                                    responsesFail = 0;
-                                    string message = "";
-                                    if(foundedWords == totalWords){
-                                        message = ENDGAME;
-                                    }else{
-                                        message = keyWords.ContainsKey(content) ? $"{ACK}-{keyWords[content]}": NACK;
-                                        if(lastWord == string.Empty && message != NACK) lastWord = keyWords[content];
-                                        else if(lastWord != string.Empty && message != NACK){
-                                            message = lastWord != keyWords[content] ? CLEAR : message;
-                                            foundedWords = message != CLEAR ? foundedWords + 1 : 0;
-                                            lastWord = "";
-                                        }
-                                    }
-                                    bResponse = Encoding.UTF8.GetBytes(message);
-                                    _ = await handler.SendAsync(bResponse, SocketFlags.None);
-                                    logger.LogInformation("Response sent...");
-                                }
-                            }else{
-                                responsesFail += 1;
-                                logger.LogInformation("Waiting for client response...");
-                            }
-                        }catch(Exception ex){
-                            logger.LogCritical(ex.Message);
-                            endGame = true;
-                            bResponse = Encoding.UTF8.GetBytes(ERROR);
-                            _ = await handler.SendAsync(bResponse, SocketFlags.None);
-                        }finally{
-                            if(!endGame){
-                                buffer = new byte[2048];
-                                recieved = await handler.ReceiveAsync(buffer, SocketFlags.None);
-                                logger.LogInformation("Reading buffer...");
-                                response = Encoding.UTF8.GetString(buffer, 0, recieved);
-                            }
-                        }
-                    }
-                    if(!endGame) logger.LogInformation("Sending response...");
-                }catch(Exception ex){
-                    logger.LogCritical(ex.Message);
-                }
+                await listener.AcceptClientMainMenu();
+                logger.LogInformation("Connection detected...");   
             }
         }else{
             logger.LogInformation("Attempting to create client...");
@@ -229,6 +79,7 @@ class Program
                 return;
             }
             try{
+                
                 logger.LogInformation("Connected to server successfully...");
                 if(difficult == 0){
                     logger.LogWarning("Difficult not set, asking to the user for one...");
