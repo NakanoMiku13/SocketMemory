@@ -163,13 +163,14 @@ class Program
                                         int wordPosition = rand.Next(0, _words.Count());
                                         string word = _words.ElementAt(wordPosition);
                                         string dictKey = "";
-                                        for(int y = 0; y < 2; y++){
+                                        for(int y = 0; y < len; y++){
                                             do{
                                                 int j = rand.Next(0, len);
                                                 int i = rand.Next(0, len);
                                                 dictKey = $"{i}:{j}";
                                             }while(keyWords.ContainsKey(dictKey));
                                             keyWords.Add(dictKey, word);
+                                            logger.LogInformation(dictKey);
                                         }
                                     }
                                     logger.LogInformation("Map set...");
@@ -259,7 +260,8 @@ class Program
                             response = await socket.SendMessage(mm);
                             if(response.Contains(ACK)){
                                 var collectedWord = response.Split("-")[1];
-                                foundWords.Add(coord, collectedWord);
+                                if(foundWords.ContainsKey(coord)) logger.LogWarning("Coordinate already set...");
+                                else foundWords.Add(coord, collectedWord);
                             }else if(response.Contains(CLEAR)){
                                 foundWords = new();
                             }else if(response.Contains(NACK)){
