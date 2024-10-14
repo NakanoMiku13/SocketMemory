@@ -3,12 +3,10 @@ using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.Extensions.Logging;
-
+using SocketMemory.Models;
 namespace SocketMemory.Repositories;
 public class ServerSocket{
-    private const string ACK = "|ACK|", CLIENT = "|CLIENT|", DIFF = "|DIFF|", ERROR = "|ERR|", EMPTY = "", DISCONNECT = "|END|",
-    CREATEMAP = "|CREATE|", COORD = "|COORD|", NACK = "|NACK|", CLEAR = "|CLR|", ENDGAME = "|ENDGAME|",
-    MENU = "|MENU|", OPTIONS = "1) Solo game\n2) VS game\n3) Exit";
+    
     private List<string> _words = new()
     {
         "amor", "avión", "árbol", "amigo", "bebé", "baño", "boca", "cielo", "cama", "coche",
@@ -40,6 +38,7 @@ public class ServerSocket{
     private List<Task> _clients;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
+    private readonly int _options = 3;
     public ServerSocket(string ip = "localhost", int port = 9595, int maxClients = 100)
     {
         _loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
@@ -94,10 +93,10 @@ public class ServerSocket{
             return response.ToString();
         }catch(Exception ex){
             _logger.LogError(ex.Message);
-            return ERROR;
+            return Constants.ERROR;
         }
     }
-    private async Task<string> SendMessage(string message, Socket client){
+    private async Task<string> SendMessageAndWaitResponse(string message, Socket client){
         try{
             var mBytes = Encoding.UTF8.GetBytes(message);
             _ = await client.SendAsync(mBytes, SocketFlags.None);
@@ -107,21 +106,82 @@ public class ServerSocket{
             return response.ToString();
         }catch(Exception ex){
             _logger.LogError(ex.Message);
-            return NACK;
+            return Constants.NACK;
         }
     }
-    private async Task StartConnection(Socket client){
+    private async Task SendMessage(string message, Socket client){
         try{
-            var response = await GetMessage(client);
-            if(response.Contains(CLIENT)){
-                response = await SendMessage(ACK, client);
-            }else{
-                response = await SendMessage($"{MENU}-{OPTIONS}", client);    
-            }
-            Console.WriteLine(response);
-            
+            var mBytes = Encoding.UTF8.GetBytes(message);
+            _ = await client.SendAsync(mBytes, SocketFlags.None);
+            var buffer = new byte[2048];
         }catch(Exception ex){
-            _logger.LogCritical(ex.Message);
+            _logger.LogWarning(ex.Message);
+        }
+    }
+    private async Task<string> NewSession(Socket client){
+        bool notvalid = true;
+        string response = "";
+        int retries = 0;
+        do{
+            response = await SendMessageAndWaitResponse($"{Constants.MENU}-{Constants.OPTIONS}", client);
+            if(response.Contains(Constants.OPTION)){
+                int option = Convert.ToInt32(response.Split("-")[1]);
+                switch(option){
+                    case 1:{
+                        await SendMessage(Constants.ACK, client);
+                        notvalid = false;
+                    }
+                    break;
+                    case 2:{
+                        await SendMessage(Constants.ACK, client);
+                        notvalid = false;
+                    }
+                    break;
+                    case 3:{
+                        await SendMessage(Constants.ACK, client);
+                        response = Constants.DISCONNECT;
+                        notvalid = false;
+                    }
+                    break;
+                    default:{
+                        await SendMessage(Constants.NACK, client);
+                        notvalid = true;
+                    }
+                    break;
+                }
+                retries = 0;
+            }else{
+                retries ++;
+            }
+            if(retries > 10){
+                _logger.LogCritical("Client disconnected by unsecure way");
+                notvalid = false;
+                response = Constants.DISCONNECT;
+            }
+        }while(notvalid);
+        return response;
+    }
+    private async Task StartConnection(Socket client){
+
+        try{
+            bool active = true;
+            while(active){
+                var response = await GetMessage(client);
+                if(response.Contains(Constants.CLIENT)){
+                    await SendMessage(Constants.ACK, client);
+                }else if(response.Contains(Constants.NEWSESSION)){
+                    response = await NewSession(client);   
+                }
+                if(response.Contains(Constants.DISCONNECT)){
+                    _logger.LogInformation("Client aquire disconection");
+                    await SendMessage(Constants.ACK, client);
+                    active = false;
+                    _logger.LogInformation("Client disconnected");
+                }
+                Console.WriteLine($"Response-{response}");
+            }
+        }catch(Exception ex){
+            _logger.LogWarning(ex.Message);
         }
     }
     private async Task SoloGame(Socket client){
@@ -132,7 +192,7 @@ public class ServerSocket{
             _logger.LogInformation("Reading buffer...");
             var response = Encoding.UTF8.GetString(buffer, 0, recieved);
             _logger.LogInformation("Client detected...");
-            var bResponse = Encoding.UTF8.GetBytes(ACK);
+            var bResponse = Encoding.UTF8.GetBytes(Constants.ACK);
             _ = await client.SendAsync(bResponse, SocketFlags.None);
             bool endGame = false;
             Dictionary<string, string> keyWords = new();
@@ -144,11 +204,11 @@ public class ServerSocket{
                 try{
                     if(responsesFail > 5){
                         _logger.LogError("Client disconnect unsecure...");
-                        response = DISCONNECT;
+                        response = Constants.DISCONNECT;
                     }
-                    if(response == DISCONNECT){
+                    if(response == Constants.DISCONNECT){
                         _logger.LogInformation("Client acquire disconnection...");
-                        bResponse = Encoding.UTF8.GetBytes(ACK);
+                        bResponse = Encoding.UTF8.GetBytes(Constants.ACK);
                         _ = await client.SendAsync(bResponse, SocketFlags.None);
                         _logger.LogInformation("Client disconnected");
                         endGame = true;
@@ -161,7 +221,7 @@ public class ServerSocket{
                         keyWords = new();
                         _logger.LogInformation("Data cleared...");
                         endGame = true;
-                    }else if(response != EMPTY){
+                    }else if(response != Constants.EMPTY){
                         responsesFail = 0;
                         _logger.LogInformation("Reading buffer...");
                         string?[] responseSplitted;
@@ -175,11 +235,11 @@ public class ServerSocket{
                             code = response;
                         }
                         _logger.LogInformation(code);
-                        if(code == DIFF){
+                        if(code == Constants.DIFF){
                             _logger.LogInformation("Setting difficult...");
                             difficult = Convert.ToInt32(content);
                             _logger.LogInformation("Difficult set...");
-                        }else if(code == CREATEMAP){
+                        }else if(code == Constants.CREATEMAP){
                             responsesFail = 0;
                             _logger.LogInformation("Setting map...");
                             Random rand = new();
@@ -202,20 +262,20 @@ public class ServerSocket{
                             }
                             _logger.LogInformation("Map set...");
                             _logger.LogInformation("Sending response to client...");
-                            bResponse = Encoding.UTF8.GetBytes(ACK);
+                            bResponse = Encoding.UTF8.GetBytes(Constants.ACK);
                             _ = await client.SendAsync(bResponse, SocketFlags.None);
                             _logger.LogInformation("Response sent...");
-                        }else if(code == COORD){
+                        }else if(code == Constants.COORD){
                             responsesFail = 0;
                             string message = "";
                             if(foundedWords == totalWords){
-                                message = ENDGAME;
+                                message = Constants.ENDGAME;
                             }else{
-                                message = keyWords.ContainsKey(content) ? $"{ACK}-{keyWords[content]}": NACK;
-                                if(lastWord == string.Empty && message != NACK) lastWord = keyWords[content];
-                                else if(lastWord != string.Empty && message != NACK){
-                                    message = lastWord != keyWords[content] ? CLEAR : message;
-                                    foundedWords = message != CLEAR ? foundedWords + 1 : 0;
+                                message = keyWords.ContainsKey(content) ? $"{Constants.ACK}-{keyWords[content]}": Constants.NACK;
+                                if(lastWord == string.Empty && message != Constants.NACK) lastWord = keyWords[content];
+                                else if(lastWord != string.Empty && message != Constants.NACK){
+                                    message = lastWord != keyWords[content] ? Constants.CLEAR : message;
+                                    foundedWords = message != Constants.CLEAR ? foundedWords + 1 : 0;
                                     lastWord = "";
                                 }
                             }
@@ -230,7 +290,7 @@ public class ServerSocket{
                 }catch(Exception ex){
                     _logger.LogCritical(ex.Message);
                     endGame = true;
-                    bResponse = Encoding.UTF8.GetBytes(ERROR);
+                    bResponse = Encoding.UTF8.GetBytes(Constants.ERROR);
                     _ = await client.SendAsync(bResponse, SocketFlags.None);
                 }finally{
                     if(!endGame){

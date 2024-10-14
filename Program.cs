@@ -8,10 +8,7 @@ using SocketMemory.Repositories;
 using SocketMemory.Models;
 namespace SocketMemory;
 class Program
-{
-    private const string ACK = "|ACK|", CLIENT = "|CLIENT|", DIFF = "|DIFF|", ERROR = "|ERR|", EMPTY = "", DISCONNECT = "|END|",
-    CREATEMAP = "|CREATE|", COORD = "|COORD|", NACK = "|NACK|", CLEAR = "|CLR|", ENDGAME = "|ENDGAME|";
-    
+{   
     async static Task Main(string[] args)
     {
         using ILoggerFactory factory = LoggerFactory.Create(builder => builder.AddConsole());
@@ -78,58 +75,25 @@ class Program
                 logger.LogCritical("Error stablishing connection to the server...");
                 return;
             }
+            logger.LogInformation("Connected to server successfully...");
             try{
-                
-                logger.LogInformation("Connected to server successfully...");
-                if(difficult == 0){
-                    logger.LogWarning("Difficult not set, asking to the user for one...");
-                    Console.WriteLine("Difficult of the game (4, 6, 8...): ");
-                    do{
-                        difficult = Convert.ToInt32(Console.ReadLine());
-                        if(difficult <= 0 && difficult > 4) Console.WriteLine("Difficult not valid, please set up one...");
-                        if(difficult % 2 != 0 ) Console.WriteLine("Difficult not pair, please, use a pair number...");
-                    }while((difficult <= 0 || difficult % 2 != 0) && difficult > 4);
-                }
-                logger.LogInformation("Sending data...");
-                var response = await socket.SendMessage($"|DIFF|-{difficult}");
-                if(response == ACK){
-                    bool endGame = false;
-                    logger.LogInformation("Getting response...");
-                    response = await socket.SendMessage(CREATEMAP);
-                    logger.LogInformation(response);
-                    Dictionary<string, string> foundWords = new();
-                    if(response == ACK) // This means that the map has been created
-                        while(!endGame){
-                            PrintMap(difficult, foundWords);
-                            Console.WriteLine("Type the coord of the word (eg. 1:1, 2:1, 0:3, etc.):");
-                            string coord = "";
-                            do{
-                                coord = Console.ReadLine();
-                                if(coord == string.Empty) Console.WriteLine("Type a coord...");
-                            }while(coord == string.Empty);
-                            string mm = $"|COORD|-{coord}";
-                            response = await socket.SendMessage(mm);
-                            if(response.Contains(ACK)){
-                                var collectedWord = response.Split("-")[1];
-                                if(foundWords.ContainsKey(coord)) logger.LogWarning("Coordinate already set...");
-                                else foundWords.Add(coord, collectedWord);
-                            }else if(response.Contains(CLEAR)){
-                                foundWords = new();
-                            }else if(response.Contains(NACK)){
-                                logger.LogWarning("Coordinate out of range...");
-                            }else if(response == ENDGAME){
-                                endGame = true;
-                                PrintMap(difficult, foundWords);
-                                logger.LogInformation("Game ended, thanks for playing...");
-                            }
-                        }
-                }
+                string response = await socket.SendMessageAndWaitResponse(Constants.NEWSESSION);
+                response = response.Split('-')[1];
+                string options = response;
+                logger.LogInformation(options);
+                do{
+                    int option = Convert.ToInt32(Console.ReadLine());
+                    response = await socket.SendMessageAndWaitResponse($"{Constants.OPTION}-{option}");
+                    if(response.Contains(Constants.NACK)){
+                        logger.LogError("Option not valid");
+                        logger.LogInformation(options);
+                    }
+                }while(!response.Contains(Constants.ACK));
             }catch(Exception ex){
                 logger.LogCritical(ex.Message);
-            }
-            finally{
-                string response = await socket.SendMessage(DISCONNECT);
-                if(response == ACK) logger.LogInformation("Closing connection...");
+            }finally{
+                await socket.SendMessage(Constants.DISCONNECT);
+                logger.LogInformation("Closing connection...");
                 socket.Dispose();
             }
         }
