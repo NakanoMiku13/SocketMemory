@@ -80,13 +80,17 @@ class Program
                 string response = await socket.SendMessageAndWaitResponse(Constants.NEWSESSION);
                 response = response.Split('-')[1];
                 string options = response;
+                string uuid = Guid.NewGuid().ToString();
                 logger.LogInformation(options);
                 do{
-                    int option = Convert.ToInt32(Console.ReadLine());
+                    //int option = Convert.ToInt32(Console.ReadLine());
+                    int option = 4;
                     response = await socket.SendMessageAndWaitResponse($"{Constants.OPTION}-{option}");
                     if(response.Contains(Constants.NACK)){
                         logger.LogError("Option not valid");
-                        logger.LogInformation(options);
+                        //logger.LogInformation(options);
+                        logger.LogInformation($"Im client {uuid}");
+                        await Task.Delay(200);
                     }
                 }while(!response.Contains(Constants.ACK));
             }catch(Exception ex){

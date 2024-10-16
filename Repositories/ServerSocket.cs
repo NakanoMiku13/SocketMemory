@@ -71,13 +71,6 @@ public class ServerSocket{
         _socket.Listen(maxClients);
         _clients = new();
     }
-    public async Task<Socket> AcceptAsync(){
-        return await _socket.AcceptAsync();
-    }
-    public async Task AcceptSoloClient(){
-        var client = await _socket.AcceptAsync();
-        _clients.Add(SoloGame(client));
-    }
     public async Task AcceptClientMainMenu(){
         var client = await _socket.AcceptAsync();
         _clients.Add(StartConnection(client));
