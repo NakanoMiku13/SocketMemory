@@ -113,8 +113,3 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 ---
 
-### Adding Badges
-
-- **Version**: The badge reflects the current version of the project.
-- **.NET 8.0**: This shows the targeted .NET runtime for the project.
-- **Build Status**: You can add continuous integration (CI) using GitHub Actions, displaying the build status for every commit and pull request. To configure this, you will need a `.github/workflows/dotnet.yml` file in your repository.
