@@ -83,16 +83,24 @@ class Program
                 string uuid = Guid.NewGuid().ToString();
                 logger.LogInformation(options);
                 do{
-                    //int option = Convert.ToInt32(Console.ReadLine());
-                    int option = 4;
+                    int option = Convert.ToInt32(Console.ReadLine());
                     response = await socket.SendMessageAndWaitResponse($"{Constants.OPTION}-{option}");
                     if(response.Contains(Constants.NACK)){
                         logger.LogError("Option not valid");
-                        //logger.LogInformation(options);
-                        logger.LogInformation($"Im client {uuid}");
+                        logger.LogInformation(options);
                         await Task.Delay(200);
                     }
                 }while(!response.Contains(Constants.ACK));
+                logger.LogInformation("Type the room id (if you want to create one, add ',' and max players, eg; 145631,5 - Where 145631 is the room id, and 5 are the max players)");
+                string? roomId = Console.ReadLine();
+                if(roomId == null){
+                    logger.LogCritical("Please, type something...");
+                    return;
+                }
+                response = await socket.SendMessageAndWaitResponse($"{Constants.ROOM}-{roomId}");
+                if(response.Contains(Constants.ACK)){
+                    
+                }
             }catch(Exception ex){
                 logger.LogCritical(ex.Message);
             }finally{

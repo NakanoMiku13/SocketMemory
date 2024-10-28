@@ -39,12 +39,19 @@ public class ServerSocket{
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
     private readonly int _options = 3;
+    private Dictionary<int, Thread> _rooms; 
+    private Dictionary<int, List<Socket>> _roomClients;
+    private Dictionary<int, Tuple<int,int>> _maxRoomClients;
+    private readonly Monitor _monitor;
     public ServerSocket(string ip = "localhost", int port = 9595, int maxClients = 100)
     {
         _loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
         _logger = _loggerFactory.CreateLogger("Client socket");
         _ip = ip;
         _port = port;
+        _clients = new();
+        _rooms = new();
+        _roomClients = new();
         _endpoint = new(IPAddress.Parse(_ip), _port);
         _socket = new(
             _endpoint.AddressFamily,
@@ -53,7 +60,8 @@ public class ServerSocket{
         );
         _socket.Bind(_endpoint);
         _socket.Listen(maxClients);
-        _clients = new();
+        _monitor = new();
+        _maxRoomClients = new();
     }
     public ServerSocket(IPAddress ip, int port = 9595, int maxClients = 100)
     {
@@ -62,6 +70,7 @@ public class ServerSocket{
         _port = port;
         _endpoint = new(ip, _port);
         _ip = ip.ToString();
+        _monitor = new();
         _socket = new(
             _endpoint.AddressFamily,
             SocketType.Stream,
@@ -70,10 +79,34 @@ public class ServerSocket{
         _socket.Bind(_endpoint);
         _socket.Listen(maxClients);
         _clients = new();
+        _roomClients = new();
+        _rooms = new();
+        _maxRoomClients = new();
     }
+    private async Task<Socket?> AcceptClient(int timeout = 15){
+        var client = _socket.AcceptAsync();
+        var timeoutDelay = Task.Delay(timeout * 1000);
+        if(await Task.WhenAny(client, timeoutDelay) == client){
+            return await client;
+        }else{
+            return null;
+        }
+    }
+    private async void NewClient(){
+        var client = await AcceptClient();
+        if(client != null){
+            _monitor.AddClient(client);
+            if(client.Connected){
+                await _monitor.ChangeClientStatus(client, STATUS.CONNECTED);
+                _clients.Add(StartConnection(client));
+            }else{
+                await _monitor.ChangeClientStatus(client, STATUS.FAIL);
+            }
+        }
+    }   
     public async Task AcceptClientMainMenu(){
-        var client = await _socket.AcceptAsync();
-        _clients.Add(StartConnection(client));
+        Thread th = new(NewClient);
+        th.Start();
     }
     public async Task CloseConnections(){
         await Task.WhenAll(_clients);
@@ -122,11 +155,45 @@ public class ServerSocket{
                 switch(option){
                     case 1:{
                         await SendMessage(Constants.ACK, client);
+                        // SOLO GAME
                         notvalid = false;
                     }
                     break;
                     case 2:{
-                        await SendMessage(Constants.ACK, client);
+                        // VERSUS GAME
+                        _logger.LogInformation("Client acquire a vs mode, asking for room id");
+                        
+                        if(response.Contains(Constants.ROOM)){
+                            string num = response.Split("-")[1];
+                            int roomId  = -1, limit = 2;
+                            if(num.Contains(",")){
+                                roomId = Convert.ToInt32(num.Split(",")[0]);
+                                limit = Convert.ToInt32(num.Split(",")[1]);
+                            }else{
+                                roomId = Convert.ToInt32(num);
+                            }
+                            limit = limit < 2 ? 2 : limit;
+                            _logger.LogInformation($"Client acquire room with: {limit} spaces (Default 2)");
+                            if(!_rooms.ContainsKey(roomId)){
+                                _logger.LogInformation($"The room with Id: {roomId} do not exists, creating one...");
+                                Thread room = new(()=>NewRoom(roomId));
+                                _rooms.Add(roomId, room);
+                                _rooms[roomId].Start();
+                                List<Socket> clients = new(){
+                                    client
+                                };
+                                _maxRoomClients.Add(roomId, new(limit, 1));
+                                _roomClients.Add(roomId, clients);
+                                response = await SendMessageAndWaitResponse(Constants.ACK, client);
+                            }else{
+                                if(_maxRoomClients[roomId].Item1 <= _maxRoomClients[roomId].Item2){
+                                    _roomClients[roomId].Add(client);
+                                    response = await SendMessageAndWaitResponse(Constants.ACK, client);
+                                }else{
+                                    response = await SendMessageAndWaitResponse(Constants.NACK, client);   
+                                }
+                            }
+                        }
                         notvalid = false;
                     }
                     break;
@@ -154,12 +221,28 @@ public class ServerSocket{
         }while(notvalid);
         return response;
     }
+    private async void NewRoom (Object roomId){
+        int id = Convert.ToInt32(roomId);
+        while(true){
+            _logger.LogInformation($"RoomId: {id}");
+            var connectedClients = _roomClients[id];
+            foreach(var client in connectedClients){
+                if(client.RemoteEndPoint is IPEndPoint remoteEndpoint){
+                    _logger.LogInformation($"{remoteEndpoint.Address.ToString()}:{remoteEndpoint.Port}");
+                }                
+            }
+            await Task.Delay(1000);
+        }
+    }
     private async Task StartConnection(Socket client){
-
         try{
+            await _monitor.ChangeClientStatus(client, STATUS.CONNECTED);
             bool active = true;
+            await _monitor.ChangeClientStatus(client, STATUS.IN_PROGRES);
+            int emptyMessages = 0;
             while(active){
                 var response = await GetMessage(client);
+                await _monitor.ChangeClientStatus(client, STATUS.EXECUTING);
                 if(response.Contains(Constants.CLIENT)){
                     await SendMessage(Constants.ACK, client);
                 }else if(response.Contains(Constants.NEWSESSION)){
@@ -167,13 +250,23 @@ public class ServerSocket{
                 }
                 if(response.Contains(Constants.DISCONNECT)){
                     _logger.LogInformation("Client aquire disconection");
+                    await _monitor.ChangeClientStatus(client, STATUS.DISCONNECTING);
                     await SendMessage(Constants.ACK, client);
                     active = false;
                     _logger.LogInformation("Client disconnected");
                 }
+                if(response == ""){
+                    emptyMessages ++;
+                }
+                if(emptyMessages > 5){
+                    _logger.LogError("Client do not respond, disconnecting");
+                    await _monitor.ChangeClientStatus(client, STATUS.FAIL);
+                    active = false;
+                }
                 Console.WriteLine($"Response-{response}");
             }
         }catch(Exception ex){
+            await _monitor.ChangeClientStatus(client, STATUS.FAIL);
             _logger.LogWarning(ex.Message);
         }
     }
