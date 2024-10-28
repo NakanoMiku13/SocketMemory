@@ -64,7 +64,6 @@ class Program
             while(true){
                 logger.LogInformation("Waiting for new connection...");
                 await listener.AcceptClientMainMenu();
-                logger.LogInformation("Connection detected...");   
             }
         }else{
             logger.LogInformation("Attempting to create client...");
@@ -99,7 +98,13 @@ class Program
                 }
                 response = await socket.SendMessageAndWaitResponse($"{Constants.ROOM}-{roomId}");
                 if(response.Contains(Constants.ACK)){
-                    
+                    logger.LogInformation("Room created successfully");
+                    for(int i = 0; i < 60; i ++){
+                        logger.LogInformation("Simulating something");
+                        await Task.Delay(1000);
+                    } 
+                }else{
+                    logger.LogCritical("The room where you trying to access is full");
                 }
             }catch(Exception ex){
                 logger.LogCritical(ex.Message);

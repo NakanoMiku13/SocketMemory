@@ -87,6 +87,7 @@ public class ServerSocket{
         var client = _socket.AcceptAsync();
         var timeoutDelay = Task.Delay(timeout * 1000);
         if(await Task.WhenAny(client, timeoutDelay) == client){
+            _logger.LogInformation("Incoming connection detected");
             return await client;
         }else{
             return null;
@@ -105,8 +106,19 @@ public class ServerSocket{
         }
     }   
     public async Task AcceptClientMainMenu(){
-        Thread th = new(NewClient);
+        /*Thread th = new(NewClient);
         th.Start();
+        th.Join();*/
+        var client = await _socket.AcceptAsync();
+        if(client != null){
+            _monitor.AddClient(client);
+            if(client.Connected){
+                await _monitor.ChangeClientStatus(client, STATUS.CONNECTED);
+                _clients.Add(StartConnection(client));
+            }else{
+                await _monitor.ChangeClientStatus(client, STATUS.FAIL);
+            }
+        }
     }
     public async Task CloseConnections(){
         await Task.WhenAll(_clients);
@@ -162,7 +174,7 @@ public class ServerSocket{
                     case 2:{
                         // VERSUS GAME
                         _logger.LogInformation("Client acquire a vs mode, asking for room id");
-                        
+                        response = await SendMessageAndWaitResponse(Constants.ACK, client);
                         if(response.Contains(Constants.ROOM)){
                             string num = response.Split("-")[1];
                             int roomId  = -1, limit = 2;
@@ -186,9 +198,12 @@ public class ServerSocket{
                                 _roomClients.Add(roomId, clients);
                                 response = await SendMessageAndWaitResponse(Constants.ACK, client);
                             }else{
-                                if(_maxRoomClients[roomId].Item1 <= _maxRoomClients[roomId].Item2){
+                                if(_maxRoomClients[roomId].Item1 >= _maxRoomClients[roomId].Item2){
                                     _roomClients[roomId].Add(client);
                                     response = await SendMessageAndWaitResponse(Constants.ACK, client);
+                                    var roomLimits = _maxRoomClients[roomId];
+                                    // Need to fix the up count, do not update
+                                    _maxRoomClients[roomId] = new(roomLimits.Item1, roomLimits.Item2 + 1);
                                 }else{
                                     response = await SendMessageAndWaitResponse(Constants.NACK, client);   
                                 }
@@ -224,7 +239,8 @@ public class ServerSocket{
     private async void NewRoom (Object roomId){
         int id = Convert.ToInt32(roomId);
         while(true){
-            _logger.LogInformation($"RoomId: {id}");
+            var roomLimits = _maxRoomClients[id];
+            _logger.LogInformation($"RoomId: {id} - Limit: {roomLimits.Item1} - Current: {roomLimits.Item2}");
             var connectedClients = _roomClients[id];
             foreach(var client in connectedClients){
                 if(client.RemoteEndPoint is IPEndPoint remoteEndpoint){
@@ -254,6 +270,7 @@ public class ServerSocket{
                     await SendMessage(Constants.ACK, client);
                     active = false;
                     _logger.LogInformation("Client disconnected");
+                    await _monitor.ChangeClientStatus(client, STATUS.DISCONECTED);
                 }
                 if(response == ""){
                     emptyMessages ++;

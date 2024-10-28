@@ -6,6 +6,7 @@ public class Monitor{
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
     private Dictionary<Socket, STATUS> _clientStatus;
+    private bool _disposed;
     private int _clients;
     public Monitor()
     {
@@ -13,6 +14,20 @@ public class Monitor{
         _logger = _loggerFactory.CreateLogger("Monitor manager");
         _clients = 0;
         _clientStatus = new();
+        _disposed = false;
+        Thread th = new (ShowData);
+        th.Start();
+    }
+    public async void ShowData(){
+        while(!_disposed){
+            _logger.LogInformation($"Current online clients: {_clients}");
+            foreach(var client in _clientStatus.Keys){
+                var status = _clientStatus[client];
+                var remoteAddress = client.RemoteEndPoint as IPEndPoint;
+                _logger.LogInformation($"Client: {remoteAddress?.Address}:{remoteAddress?.Port} is {status}");
+            }
+            await Task.Delay(1000);
+        }
     }
     public async Task ChangeClientStatus(Socket id, STATUS status){
         try{
@@ -34,13 +49,13 @@ public class Monitor{
         try{
             if(_clientStatus.ContainsKey(id)){
                 var status = _clientStatus[id];
-                _clientStatus.Remove(id);
                 _logger.LogInformation("Removing socket client");
                 if(status == STATUS.DISCONNECTING && id.Connected){
                     await id.DisconnectAsync(false);
                     _logger.LogInformation("Disconnecting client");
+
                 }
-                id?.Dispose();
+                _clients--;
             }else{
                 _logger.LogWarning("Client not found");
             }
