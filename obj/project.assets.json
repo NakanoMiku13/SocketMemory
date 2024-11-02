@@ -881,11 +881,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "/home/miku/Codigos/SocketMemory/SocketMemory.csproj",
+      "projectUniqueName": "/mnt/ssd1tb/Codigos/SocketMemory/SocketMemory.csproj",
       "projectName": "SocketMemory",
-      "projectPath": "/home/miku/Codigos/SocketMemory/SocketMemory.csproj",
+      "projectPath": "/mnt/ssd1tb/Codigos/SocketMemory/SocketMemory.csproj",
       "packagesPath": "/home/miku/.nuget/packages/",
-      "outputPath": "/home/miku/Codigos/SocketMemory/obj/",
+      "outputPath": "/mnt/ssd1tb/Codigos/SocketMemory/obj/",
       "projectStyle": "PackageReference",
       "configFilePaths": [
         "/home/miku/.nuget/NuGet/NuGet.Config"

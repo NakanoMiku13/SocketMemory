@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Reflection.Metadata;
 using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.Extensions.Logging;
@@ -40,8 +41,9 @@ public class ServerSocket{
     private readonly ILogger _logger;
     private readonly int _options = 3;
     private Dictionary<int, Thread> _rooms; 
+    private Dictionary<Socket, int> _clientAtRoom;
     private Dictionary<int, List<Socket>> _roomClients;
-    private Dictionary<int, Tuple<int,int>> _maxRoomClients;
+    private Dictionary<int, (int, int)> _maxRoomClients;
     private readonly Monitor _monitor;
     public ServerSocket(string ip = "localhost", int port = 9595, int maxClients = 100)
     {
@@ -62,6 +64,7 @@ public class ServerSocket{
         _socket.Listen(maxClients);
         _monitor = new();
         _maxRoomClients = new();
+        _clientAtRoom = new();
     }
     public ServerSocket(IPAddress ip, int port = 9595, int maxClients = 100)
     {
@@ -81,6 +84,7 @@ public class ServerSocket{
         _clients = new();
         _roomClients = new();
         _rooms = new();
+        _clientAtRoom = new();
         _maxRoomClients = new();
     }
     private async Task<Socket?> AcceptClient(int timeout = 15){
@@ -184,28 +188,32 @@ public class ServerSocket{
                             }else{
                                 roomId = Convert.ToInt32(num);
                             }
-                            limit = limit < 2 ? 2 : limit;
-                            _logger.LogInformation($"Client acquire room with: {limit} spaces (Default 2)");
                             if(!_rooms.ContainsKey(roomId)){
+                                limit = limit < 2 ? 2 : limit;
+                                _logger.LogInformation($"Client acquire room with: {limit} spaces (Default 2)");
                                 _logger.LogInformation($"The room with Id: {roomId} do not exists, creating one...");
-                                Thread room = new(()=>NewRoom(roomId));
+                                Thread room = new(()=>WaitRoom(roomId));
                                 _rooms.Add(roomId, room);
                                 _rooms[roomId].Start();
                                 List<Socket> clients = new(){
                                     client
                                 };
-                                _maxRoomClients.Add(roomId, new(limit, 1));
+                                _maxRoomClients.Add(roomId, (limit, 1));
                                 _roomClients.Add(roomId, clients);
+                                _clientAtRoom.Add(client, roomId);
                                 response = await SendMessageAndWaitResponse(Constants.ACK, client);
                             }else{
-                                if(_maxRoomClients[roomId].Item1 >= _maxRoomClients[roomId].Item2){
+                                (int roomLimit, int currentCount) = _maxRoomClients[roomId];
+                                _logger.LogInformation($"Room {roomId} {currentCount}/{roomLimit}");
+                                if(roomLimit > currentCount){
                                     _roomClients[roomId].Add(client);
-                                    response = await SendMessageAndWaitResponse(Constants.ACK, client);
-                                    var roomLimits = _maxRoomClients[roomId];
-                                    // Need to fix the up count, do not update
-                                    _maxRoomClients[roomId] = new(roomLimits.Item1, roomLimits.Item2 + 1);
+                                    await SendMessage(Constants.ACK, client);
+                                    _maxRoomClients[roomId] = (roomLimit, currentCount + 1);
+                                    _clientAtRoom.Add(client, roomId);
+                                    _logger.LogInformation($"New client join the room: {currentCount}/{roomLimit}");
                                 }else{
-                                    response = await SendMessageAndWaitResponse(Constants.NACK, client);   
+                                    response = await SendMessageAndWaitResponse(Constants.NACK, client);
+                                    _logger.LogWarning("Client acquire to join a full room");
                                 }
                             }
                         }
@@ -236,19 +244,45 @@ public class ServerSocket{
         }while(notvalid);
         return response;
     }
-    private async void NewRoom (Object roomId){
+    private async void WaitRoom (Object roomId){
         int id = Convert.ToInt32(roomId);
-        while(true){
-            var roomLimits = _maxRoomClients[id];
-            _logger.LogInformation($"RoomId: {id} - Limit: {roomLimits.Item1} - Current: {roomLimits.Item2}");
-            var connectedClients = _roomClients[id];
+        // Wait room
+        bool isFull = false;
+        var connectedClients = _roomClients[id];
+        (int limit, int clientsConnected) = _maxRoomClients[id];
+        while(!isFull){
+            connectedClients = _roomClients[id];
+            (limit, clientsConnected) = _maxRoomClients[id];
+            _logger.LogInformation($"RoomId: {id} - Limit: {limit} - Current: {clientsConnected}");
             foreach(var client in connectedClients){
                 if(client.RemoteEndPoint is IPEndPoint remoteEndpoint){
                     _logger.LogInformation($"{remoteEndpoint.Address.ToString()}:{remoteEndpoint.Port}");
-                }                
+                    if(_monitor.IsActive(client))
+                        await SendMessage($"{Constants.WAIT}-Waiting for fullfill the room; current clients: {clientsConnected}/{limit}", client);
+                }
+            }
+            if(clientsConnected >= limit) isFull = true;
+            if(clientsConnected == 0){
+                ClearRoom(id);
+                break;
             }
             await Task.Delay(1000);
         }
+        if(clientsConnected == 0 && _maxRoomClients.ContainsKey(id) && _roomClients.ContainsKey(id) && _rooms.ContainsKey(id)){
+            ClearRoom(id);
+            return;
+        }
+        foreach(var client in connectedClients){
+            if(_monitor.IsActive(client))
+                await SendMessage($"{Constants.START}", client);
+        }
+    }
+    private void ClearRoom(int id){
+        _logger.LogWarning("No clients into room, cleaning room");
+        _maxRoomClients.Remove(id);
+        _roomClients.Remove(id);
+        _rooms.Remove(id);
+        _logger.LogInformation("Room removed");
     }
     private async Task StartConnection(Socket client){
         try{
@@ -271,6 +305,7 @@ public class ServerSocket{
                     active = false;
                     _logger.LogInformation("Client disconnected");
                     await _monitor.ChangeClientStatus(client, STATUS.DISCONECTED);
+                    RemoveClientFromCount(client);
                 }
                 if(response == ""){
                     emptyMessages ++;
@@ -278,13 +313,22 @@ public class ServerSocket{
                 if(emptyMessages > 5){
                     _logger.LogError("Client do not respond, disconnecting");
                     await _monitor.ChangeClientStatus(client, STATUS.FAIL);
+                    RemoveClientFromCount(client);
                     active = false;
                 }
                 Console.WriteLine($"Response-{response}");
             }
         }catch(Exception ex){
             await _monitor.ChangeClientStatus(client, STATUS.FAIL);
+            RemoveClientFromCount(client);
             _logger.LogWarning(ex.Message);
+        }
+    }
+    private void RemoveClientFromCount(Socket client){
+        if(_clientAtRoom.ContainsKey(client)){
+            int roomId = _clientAtRoom[client];
+            (int limit, int count) = _maxRoomClients[roomId];
+            _maxRoomClients[roomId] = (limit, count - 1);
         }
     }
     private async Task SoloGame(Socket client){

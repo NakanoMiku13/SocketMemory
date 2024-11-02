@@ -45,6 +45,14 @@ public class Monitor{
             _logger.LogError(ex.Message);
         }
     }
+    public bool IsActive(Socket client){
+        try{
+            return _clientStatus.ContainsKey(client) && (_clientStatus[client] == STATUS.EXECUTING || _clientStatus[client] == STATUS.IN_PROGRES);
+        }catch(Exception ex){
+            _logger.LogWarning(ex.Message);
+        }
+        return false;
+    }
     public async Task<bool> RemoveClient(Socket id){
         try{
             if(_clientStatus.ContainsKey(id)){

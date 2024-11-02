@@ -99,10 +99,15 @@ class Program
                 response = await socket.SendMessageAndWaitResponse($"{Constants.ROOM}-{roomId}");
                 if(response.Contains(Constants.ACK)){
                     logger.LogInformation("Room created successfully");
-                    for(int i = 0; i < 60; i ++){
-                        logger.LogInformation("Simulating something");
-                        await Task.Delay(1000);
-                    } 
+                    do{
+                        response = await socket.WaitMessage();
+                        if(response.Contains(Constants.WAIT)){
+                            string message = response.Split("-")[1];
+                            logger.LogInformation(message);
+                        }else if(response.Contains(Constants.ERROR)){
+                            throw new Exception(response);
+                        }
+                    }while(!response.Contains(Constants.START));
                 }else{
                     logger.LogCritical("The room where you trying to access is full");
                 }

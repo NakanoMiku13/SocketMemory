@@ -62,6 +62,16 @@ public class ClientSocket{
             return "";
         }
     }
+    public async Task<string> WaitMessage(){
+        if(_isConnected){
+            var buffer = new byte[2048];
+            var recieved = await _socket.ReceiveAsync(buffer, SocketFlags.None);
+            var response = Encoding.UTF8.GetString(buffer, 0, recieved);
+            return response.ToString();
+        }else{
+            return "";
+        }
+    }
     public async Task<string> SendMessage(string message){
         if(_isConnected){
             var mBytes = Encoding.UTF8.GetBytes(message);
