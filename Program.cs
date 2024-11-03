@@ -106,8 +106,11 @@ class Program
                             logger.LogInformation(message);
                         }else if(response.Contains(Constants.ERROR)){
                             throw new Exception(response);
+                        }else{
+                            logger.LogInformation(response);
                         }
-                    }while(!response.Contains(Constants.START));
+                    //}while(!response.Contains(Constants.START));
+                    }while(true);
                 }else{
                     logger.LogCritical("The room where you trying to access is full");
                 }

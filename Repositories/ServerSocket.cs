@@ -110,9 +110,6 @@ public class ServerSocket{
         }
     }   
     public async Task AcceptClientMainMenu(){
-        /*Thread th = new(NewClient);
-        th.Start();
-        th.Join();*/
         var client = await _socket.AcceptAsync();
         if(client != null){
             _monitor.AddClient(client);
@@ -254,13 +251,7 @@ public class ServerSocket{
             connectedClients = _roomClients[id];
             (limit, clientsConnected) = _maxRoomClients[id];
             _logger.LogInformation($"RoomId: {id} - Limit: {limit} - Current: {clientsConnected}");
-            foreach(var client in connectedClients){
-                if(client.RemoteEndPoint is IPEndPoint remoteEndpoint){
-                    _logger.LogInformation($"{remoteEndpoint.Address.ToString()}:{remoteEndpoint.Port}");
-                    if(_monitor.IsActive(client))
-                        await SendMessage($"{Constants.WAIT}-Waiting for fullfill the room; current clients: {clientsConnected}/{limit}", client);
-                }
-            }
+            await SendMessageToClients($"{Constants.WAIT}-Waiting for fullfill the room; current clients: {clientsConnected}/{limit}", connectedClients);
             if(clientsConnected >= limit) isFull = true;
             if(clientsConnected == 0){
                 ClearRoom(id);
@@ -272,10 +263,88 @@ public class ServerSocket{
             ClearRoom(id);
             return;
         }
+        List<Socket> onlineClients = new();
         foreach(var client in connectedClients){
-            if(_monitor.IsActive(client))
+            if(_monitor.IsActive(client)){
                 await SendMessage($"{Constants.START}", client);
+                onlineClients.Add(client);
+            }
         }
+        await VSGame(id, onlineClients);
+        if(_maxRoomClients.ContainsKey(id) && _roomClients.ContainsKey(id) && _rooms.ContainsKey(id)){
+            ClearRoom(id);
+        }
+    }
+    private async Task SendMessageToClients(string message, List<Socket> clients){
+        foreach(var client in clients)
+            if(_monitor.IsActive(client))
+                await SendMessage(message, client);
+    }
+    private async Task VSGame(int roomId, List<Socket> clients){
+        try{
+            bool endGame = false;
+            Dictionary<string, string> keyWords = new();
+            int totalWords = 0, difficult = 8;
+            Dictionary<Socket, int> scores = new();
+            string currentPlayer = "";
+            _logger.LogInformation("Setting map...");
+            await SendMessageToClients("Setting map...", clients);
+            Random rand = new();
+            int len = difficult / 2;
+            totalWords = len;
+            _logger.LogInformation("Getting words...");
+            await SendMessageToClients("Getting words...", clients);
+            for(int x = 0; x < len; x++){
+                int wordPosition = rand.Next(0, _words.Count());
+                string word = _words.ElementAt(wordPosition);
+                string dictKey = "";
+                for(int y = 0; y < len; y++){
+                    do{
+                        int j = rand.Next(0, len);
+                        int i = rand.Next(0, len);
+                        dictKey = $"{i}:{j}";
+                    }while(keyWords.ContainsKey(dictKey));
+                    keyWords.Add(dictKey, word);
+                }
+            }
+            await SendMessageToClients("Map ready...", clients);
+            var firstPlayer = clients.ElementAt(rand.Next(0, clients.Count - 1));
+            currentPlayer = GetPlayerId(firstPlayer);
+            await SendMessageToClients($"{Constants.PLAYER}-{currentPlayer}", clients);
+            while(!endGame){
+                try{
+                    if(!VerifyClients(clients)) endGame = true;
+                    else{
+                        
+                    }
+                }catch(Exception ex){
+                    _logger.LogError(ex.Message);
+                }
+            }
+        }catch(Exception ex){
+            _logger.LogCritical(ex.Message);
+            await SendMessageToClients("Something fail while creating the game...", clients);
+        }finally{
+            await SendMessageToClients("Thanks for playing...", clients);
+            _logger.LogInformation($"Clearing data from room {roomId}");
+            ClearRoom(roomId);
+        }
+    }
+    private bool VerifyClients(List<Socket> clients){
+        int onlineClients = 0;
+        foreach(var client in clients) if(_monitor.IsActive(client)) onlineClients ++;
+        return onlineClients > 0;
+    }
+    private string GetPlayerId(Socket client){
+        string id = "";
+        try{
+            var remoteEndPoint = client.RemoteEndPoint as IPEndPoint;
+            if(remoteEndPoint != null)
+                id = $"{remoteEndPoint.Address}:{remoteEndPoint.Port}";
+        }catch(Exception ex){
+            _logger.LogWarning($"Error while getting a client id: {ex.Message}");
+        }
+        return id;
     }
     private void ClearRoom(int id){
         _logger.LogWarning("No clients into room, cleaning room");
