@@ -81,6 +81,10 @@ public class ClientSocket{
             return "";
         }
     }
+    public string GetId(){
+        var id = this._socket.RemoteEndPoint as IPEndPoint;
+        return id == null ? "" : $"{id.Address.ToString()}:{id.Port}";
+    }
     public void Dispose(){
         _socket.Shutdown(SocketShutdown.Both);
     }

@@ -97,20 +97,54 @@ class Program
                     return;
                 }
                 response = await socket.SendMessageAndWaitResponse($"{Constants.ROOM}-{roomId}");
+                string message = "";
                 if(response.Contains(Constants.ACK)){
                     logger.LogInformation("Room created successfully");
                     do{
                         response = await socket.WaitMessage();
                         if(response.Contains(Constants.WAIT)){
-                            string message = response.Split("-")[1];
+                            message = response.Split("-")[1];
                             logger.LogInformation(message);
                         }else if(response.Contains(Constants.ERROR)){
                             throw new Exception(response);
                         }else{
                             logger.LogInformation(response);
                         }
-                    //}while(!response.Contains(Constants.START));
-                    }while(true);
+                    }while(!response.Contains(Constants.START));
+                    bool endGame = false;
+                    string id = "";
+                    do{
+                        message = await socket.WaitMessage();
+                        logger.LogInformation(message);
+                    }while(!message.Contains(Constants.PLAYER));
+                    string turn = message;
+                    turn = turn.Split("-")[1];
+                    response = await socket.WaitMessage();
+                    roomId = roomId.Contains(",") ? roomId.Split(",")[0] : roomId;
+                    if(response.Contains(Constants.PLAYER_ID)){
+                        id = response.Split("-")[1];
+                        logger.LogInformation($"Your Id is: {id}");
+                        while(!endGame){
+                            if(response.Contains(Constants.ERROR)){
+                                logger.LogInformation($"Something fail: {response.Split('-')[1]}");
+                                break;
+                            }else if(turn.Equals(id)){
+                                logger.LogInformation($"Its your turn (You are: {id})");
+                                do{
+                                    message = Console.ReadLine();
+                                }while(message == string.Empty);
+                                if(message != null && message.Contains(':')){
+                                    await socket.SendMessage($"{Constants.PLAYER_ID}-{roomId}-{id}-{Constants.COORD}_{message}");
+                                }else{
+                                    await socket.SendMessage($"{Constants.PLAYER_ID}-{roomId}-{id}-{message}");
+                                }
+                            }else{
+                                logger.LogInformation(response.Split('-')[1]);
+                            }
+                            response = await socket.WaitMessage();
+                            turn = response.Split("-")[1];
+                        }
+                    }
                 }else{
                     logger.LogCritical("The room where you trying to access is full");
                 }
