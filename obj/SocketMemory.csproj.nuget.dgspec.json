@@ -1,31 +1,31 @@
 {
   "format": 1,
   "restore": {
-    "/home/miku/Codigos/SocketMemory/SocketMemory.csproj": {}
+    "/mnt/ssd1tb/Codigos/SocketMemory/SocketMemory.csproj": {}
   },
   "projects": {
-    "/home/miku/Codigos/SocketMemory/SocketMemory.csproj": {
+    "/mnt/ssd1tb/Codigos/SocketMemory/SocketMemory.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "/home/miku/Codigos/SocketMemory/SocketMemory.csproj",
+        "projectUniqueName": "/mnt/ssd1tb/Codigos/SocketMemory/SocketMemory.csproj",
         "projectName": "SocketMemory",
-        "projectPath": "/home/miku/Codigos/SocketMemory/SocketMemory.csproj",
+        "projectPath": "/mnt/ssd1tb/Codigos/SocketMemory/SocketMemory.csproj",
         "packagesPath": "/home/miku/.nuget/packages/",
-        "outputPath": "/home/miku/Codigos/SocketMemory/obj/",
+        "outputPath": "/mnt/ssd1tb/Codigos/SocketMemory/obj/",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "/home/miku/.nuget/NuGet/NuGet.Config"
         ],
         "originalTargetFrameworks": [
-          "net8.0"
+          "net9.0"
         ],
         "sources": {
           "/usr/share/dotnet/library-packs": {},
           "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
-          "net8.0": {
-            "targetAlias": "net8.0",
+          "net9.0": {
+            "targetAlias": "net9.0",
             "projectReferences": {}
           }
         },
@@ -42,8 +42,8 @@
         "SdkAnalysisLevel": "9.0.100"
       },
       "frameworks": {
-        "net8.0": {
-          "targetAlias": "net8.0",
+        "net9.0": {
+          "targetAlias": "net9.0",
           "dependencies": {
             "CommandLineParser": {
               "target": "Package",
@@ -51,11 +51,11 @@
             },
             "Microsoft.Extensions.Logging": {
               "target": "Package",
-              "version": "[8.0.0, )"
+              "version": "[9.0.0, )"
             },
             "Microsoft.Extensions.Logging.Console": {
               "target": "Package",
-              "version": "[8.0.0, )"
+              "version": "[9.0.0, )"
             }
           },
           "imports": [
@@ -69,20 +69,6 @@
           ],
           "assetTargetFallback": true,
           "warn": true,
-          "downloadDependencies": [
-            {
-              "name": "Microsoft.AspNetCore.App.Ref",
-              "version": "[8.0.11, 8.0.11]"
-            },
-            {
-              "name": "Microsoft.NETCore.App.Host.linux-x64",
-              "version": "[8.0.11, 8.0.11]"
-            },
-            {
-              "name": "Microsoft.NETCore.App.Ref",
-              "version": "[8.0.11, 8.0.11]"
-            }
-          ],
           "frameworkReferences": {
             "Microsoft.NETCore.App": {
               "privateAssets": "all"

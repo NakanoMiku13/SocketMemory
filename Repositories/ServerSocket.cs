@@ -298,14 +298,14 @@ public class ServerSocket{
         }
     }
     private async Task SendMessageToClients(string message, List<Socket> clients){
-        await Task.Delay(50);
+        await Task.Delay(75);
         foreach(var client in clients)
             if(_monitor.IsActive(client))
                 await SendMessage(message, client);
     }
     private async Task VSGame(int roomId, List<Socket> clients){
         try{
-            bool endGame = false, currentPlayerFail = false;
+            bool endGame = false;
             Dictionary<string, string> keyWords = new();
             int totalWords = 0, difficult = 8, foundedWords = 0;
             Dictionary<Socket, int> scores = new();
@@ -369,20 +369,30 @@ public class ServerSocket{
                             await SendMessageToClients($"{Constants.ACK}-The player with turn, disconnect, choosing other player", clients);
                         }
                         if(message != string.Empty && message != null){
+                            var player = clients.ElementAt(firstPlayerIndex);
                             _logger.LogInformation("Player send coordinates");
                             if(message.Contains(Constants.COORD)){
+                                // NEEDS TO SEND THE CURRENT GAME MAP
                                 string coord = message.Split('_')[1];
                                 if(keyWords.ContainsKey(coord)){
                                     _logger.LogInformation("Player found a word");
                                     currentWord = keyWords[coord];
                                     if(lastWord == string.Empty){
+                                        await SendMessageToClients($"{Constants.COORD}-{coord}-{currentWord}", clients);
                                         lastWord = currentWord;
                                         await SendMessageToClients($"{Constants.ACK}-Player found a word, can continue", clients);
                                         await SendMessageToClients($"{Constants.PLAYER}-{currentPlayer}", clients);
                                     }else{
                                         if(lastWord.Equals(currentWord)){
                                             // PLAYER GET POINTS
+                                            await SendMessageToClients($"{Constants.COORD}-{coord}-{currentWord}", clients);
                                             playersAnswers.Add(currentWord, currentPlayer);
+                                            if(scores.ContainsKey(player)){
+                                                scores[player]++;
+                                            }else{
+                                                scores.Add(player, 0);
+                                            }
+                                            
                                             await SendMessageToClients($"{Constants.ACK}-Player found a pair, gets one point, can continue", clients);
                                             await SendMessageToClients($"{Constants.PLAYER}-{currentPlayer}", clients);
                                             foundedWords ++;
@@ -397,6 +407,11 @@ public class ServerSocket{
                                             currentPlayer = GetPlayerId(clients.ElementAt(nextPlayerId));
                                             firstPlayerIndex = nextPlayerId;
                                             await SendMessageToClients($"{Constants.PLAYER}-{currentPlayer}", clients);
+                                            if(scores.ContainsKey(player)){
+                                                scores[player] = scores[player] > 0 ? scores[player] - 1 : 0;
+                                            }else{
+                                                scores.Add(player, 0);
+                                            }
                                         }
                                     }
                                 }else{

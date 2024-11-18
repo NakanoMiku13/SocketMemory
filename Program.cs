@@ -76,6 +76,7 @@ class Program
             }
             logger.LogInformation("Connected to server successfully...");
             try{
+                Dictionary<string, string> words = new();
                 string response = await socket.SendMessageAndWaitResponse(Constants.NEWSESSION);
                 response = response.Split('-')[1];
                 string options = response;
@@ -123,7 +124,6 @@ class Program
                     roomId = roomId.Contains(",") ? roomId.Split(",")[0] : roomId;
                     if(response.Contains(Constants.PLAYER_ID)){
                         id = response.Split("-")[1];
-                        logger.LogInformation($"Your Id is: {id}");
                         while(!endGame){
                             if(response.Contains(Constants.ERROR)){
                                 logger.LogInformation($"Something fail: {response.Split('-')[1]}");
@@ -142,6 +142,14 @@ class Program
                                 logger.LogInformation(response.Split('-')[1]);
                             }
                             response = await socket.WaitMessage();
+                            logger.LogInformation(response);
+                            if(response.Contains(Constants.COORD)){
+                                var unzipped = response.Split('-');
+                                if(!words.ContainsKey(unzipped[1])){
+                                    words.Add(unzipped[1], unzipped[2]);
+                                }
+                                PrintMap(8, words);
+                            }
                             turn = response.Split("-")[1];
                         }
                     }
