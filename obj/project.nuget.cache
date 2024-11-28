@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "6KCwRLaCLGQ=",
+  "dgSpecHash": "U5KjBg4A+gw=",
   "success": true,
-  "projectFilePath": "/mnt/ssd1tb/Codigos/SocketMemory/SocketMemory.csproj",
+  "projectFilePath": "/home/miku/Codigos/SocketMemory/SocketMemory.csproj",
   "expectedPackageFiles": [
     "/home/miku/.nuget/packages/commandlineparser/2.9.1/commandlineparser.2.9.1.nupkg.sha512",
     "/home/miku/.nuget/packages/microsoft.extensions.configuration/9.0.0/microsoft.extensions.configuration.9.0.0.nupkg.sha512",

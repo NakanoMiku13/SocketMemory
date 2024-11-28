@@ -10,8 +10,9 @@ public class ClientSocket{
     private readonly ILogger _logger;
     private readonly IPEndPoint _endpoint;
     private bool _isConnected; 
+    private readonly CancellationToken _cancellationToken;
     private readonly ILoggerFactory _loggerFactory;
-    public ClientSocket(string ip, int port)
+    public ClientSocket(string ip, int port, CancellationToken cancellationToken)
     {
         _loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
         _logger = _loggerFactory.CreateLogger("Client socket");
@@ -24,8 +25,9 @@ public class ClientSocket{
         );
         _endpoint = endpoint;
         _isConnected = false;
+        _cancellationToken = cancellationToken;
     }
-    public ClientSocket(IPAddress ip, int port)
+    public ClientSocket(IPAddress ip, int port, CancellationToken cancellationToken)
     {
         _loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
         _logger = _loggerFactory.CreateLogger("Client socket");
@@ -37,10 +39,11 @@ public class ClientSocket{
         );
         _endpoint = endpoint;
         _isConnected = false;
+        _cancellationToken = cancellationToken;
     }
     public async Task<bool> Connect(){
         try{
-            await _socket.ConnectAsync(_endpoint);
+            await _socket.ConnectAsync(_endpoint, _cancellationToken);
             _isConnected = true;
             var t = await this.SendMessageAndWaitResponse(Constants.CLIENT);
             _isConnected = t.Contains(Constants.ACK);
@@ -53,9 +56,9 @@ public class ClientSocket{
     public async Task<string> SendMessageAndWaitResponse(string message){
         if(_isConnected){
             var mBytes = Encoding.UTF8.GetBytes(message);
-            _ = await _socket.SendAsync(mBytes, SocketFlags.None);
+            _ = await _socket.SendAsync(mBytes, SocketFlags.None, _cancellationToken);
             var buffer = new byte[2048];
-            var recieved = await _socket.ReceiveAsync(buffer, SocketFlags.None);
+            var recieved = await _socket.ReceiveAsync(buffer, SocketFlags.None, _cancellationToken);
             var response = Encoding.UTF8.GetString(buffer, 0, recieved);
             return response.ToString();
         }else{
@@ -65,7 +68,7 @@ public class ClientSocket{
     public async Task<string> WaitMessage(){
         if(_isConnected){
             var buffer = new byte[2048];
-            var recieved = await _socket.ReceiveAsync(buffer, SocketFlags.None);
+            var recieved = await _socket.ReceiveAsync(buffer, SocketFlags.None, _cancellationToken);
             var response = Encoding.UTF8.GetString(buffer, 0, recieved);
             return response.ToString();
         }else{
@@ -75,7 +78,7 @@ public class ClientSocket{
     public async Task<string> SendMessage(string message){
         if(_isConnected){
             var mBytes = Encoding.UTF8.GetBytes(message);
-            _ = await _socket.SendAsync(mBytes, SocketFlags.None);
+            _ = await _socket.SendAsync(mBytes, SocketFlags.None, _cancellationToken);
             return "";
         }else{
             return "";

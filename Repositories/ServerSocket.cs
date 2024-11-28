@@ -41,14 +41,16 @@ public class ServerSocket{
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
     private readonly int _options = 3;
-    private Dictionary<int, Thread> _rooms; 
+    private Dictionary<int, Thread> _rooms;
     private Dictionary<Socket, int> _clientAtRoom;
     private Dictionary<int, List<Socket>> _roomClients;
     private Dictionary<int, (int, int)> _maxRoomClients;
     private Dictionary<int, (string, string)> _lastRoomMessage;
     private readonly Monitor _monitor;
+    private readonly CancellationToken _cancellationToken;
+    private Thread _roomCleaner;
 #pragma warning disable CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring as nullable.
-    public ServerSocket(string ip = "localhost", int port = 9595, int maxClients = 100)
+    public ServerSocket(CancellationToken cancellationToken, string ip = "localhost", int port = 9595, int maxClients = 100)
 #pragma warning restore CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring as nullable.
     {
         _loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
@@ -67,10 +69,11 @@ public class ServerSocket{
         _socket.Bind(_endpoint);
         _socket.Listen(maxClients);
         _monitor = new();
+        _cancellationToken = cancellationToken;
         InitVar();
     }
 #pragma warning disable CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring as nullable.
-    public ServerSocket(IPAddress ip, int port = 9595, int maxClients = 100)
+    public ServerSocket(CancellationToken cancellationToken, IPAddress ip, int port = 9595, int maxClients = 100)
 #pragma warning restore CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring as nullable.
     {
         _loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
@@ -86,6 +89,7 @@ public class ServerSocket{
         _socket.Bind(_endpoint);
         _socket.Listen(maxClients);
         _monitor = new();
+        _cancellationToken = cancellationToken;
         InitVar();
     }
     private void InitVar(){
@@ -95,7 +99,16 @@ public class ServerSocket{
         _clientAtRoom = new();
         _maxRoomClients = new();
         _lastRoomMessage = new();
-        
+        _roomCleaner = new(RoomCleaner);
+        _roomCleaner.Start();
+    }
+    private async void RoomCleaner(){
+        while(true){
+            foreach(var room in _rooms.Keys){
+                _logger.LogInformation($"Room: {room} is {_monitor.IsRoomAlive(_rooms[room])} {_monitor.GetRoomStatus(_rooms[room])}");
+            }
+            await Task.Delay(1000);
+        }
     }
     private async Task<Socket?> AcceptClient(int timeout = 15){
         var client = _socket.AcceptAsync();
@@ -120,7 +133,7 @@ public class ServerSocket{
         }
     }   
     public async Task AcceptClientMainMenu(){
-        var client = await _socket.AcceptAsync();
+        var client = await _socket.AcceptAsync(_cancellationToken);
         if(client != null){
             _monitor.AddClient(client);
             if(client.Connected){
@@ -137,7 +150,7 @@ public class ServerSocket{
     private async Task<string> GetMessage(Socket client){
         try{
             var buffer = new byte[2048];
-            var recieved = await client.ReceiveAsync(buffer, SocketFlags.None);
+            var recieved = await client.ReceiveAsync(buffer, SocketFlags.None, _cancellationToken);
             var response = Encoding.UTF8.GetString(buffer, 0, recieved);
             return response.ToString();
         }catch(Exception ex){
@@ -148,9 +161,9 @@ public class ServerSocket{
     private async Task<string> SendMessageAndWaitResponse(string message, Socket client){
         try{
             var mBytes = Encoding.UTF8.GetBytes(message);
-            _ = await client.SendAsync(mBytes, SocketFlags.None);
+            _ = await client.SendAsync(mBytes, SocketFlags.None, _cancellationToken);
             var buffer = new byte[2048];
-            var recieved = await client.ReceiveAsync(buffer, SocketFlags.None);
+            var recieved = await client.ReceiveAsync(buffer, SocketFlags.None, _cancellationToken);
             var response = Encoding.UTF8.GetString(buffer, 0, recieved);
             return response.ToString();
         }catch(Exception ex){
@@ -161,7 +174,7 @@ public class ServerSocket{
     private async Task SendMessage(string message, Socket client){
         try{
             var mBytes = Encoding.UTF8.GetBytes(message);
-            _ = await client.SendAsync(mBytes, SocketFlags.None);
+            _ = await client.SendAsync(mBytes, SocketFlags.None, _cancellationToken);
         }catch(Exception ex){
             _logger.LogWarning(ex.Message);
         }
@@ -187,10 +200,12 @@ public class ServerSocket{
                         response = await SendMessageAndWaitResponse(Constants.ACK, client);
                         if(response.Contains(Constants.ROOM)){
                             string num = response.Split("-")[1];
-                            int roomId  = -1, limit = 2;
+                            int roomId  = -1, limit = 2, difficult = 8;
                             if(num.Contains(",")){
-                                roomId = Convert.ToInt32(num.Split(",")[0]);
-                                limit = Convert.ToInt32(num.Split(",")[1]);
+                                var split = num.Split(",");
+                                roomId = Convert.ToInt32(split[0]);
+                                limit = Convert.ToInt32(split[1]);
+                                difficult = split.Length > 2 ? Convert.ToInt32(split[2]) : difficult;
                             }else{
                                 roomId = Convert.ToInt32(num);
                             }
@@ -198,22 +213,42 @@ public class ServerSocket{
                                 limit = limit < 2 ? 2 : limit;
                                 _logger.LogInformation($"Client acquire room with: {limit} spaces (Default 2)");
                                 _logger.LogInformation($"The room with Id: {roomId} do not exists, creating one...");
+                                Thread room = new(()=>WaitRoom(roomId, difficult));
                                 try{
-                                    Thread room = new(()=>WaitRoom(roomId));
+                                    room.IsBackground = true;
+                                    room.Name = $"Room-{roomId}";
+                                    if(!_monitor.IsRoomAlive(room)){
+                                        _monitor.AddRoom(room);
+                                    }
                                     _rooms.Add(roomId, room);
                                     _rooms[roomId].Start();
-                                    _lastRoomMessage.Add(roomId, new());
+                                    _monitor.ChangeRoomStatus(room, STATUS.CONNECTING);
+                                    if(_lastRoomMessage.ContainsKey(roomId))
+                                        _lastRoomMessage[roomId] = new();
+                                    else
+                                        _lastRoomMessage.Add(roomId, new());
                                     List<Socket> clients = new(){
                                         client
                                     };
-                                    _maxRoomClients.Add(roomId, (limit, 1));
-                                    _roomClients.Add(roomId, clients);
-                                    _clientAtRoom.Add(client, roomId);
+                                    if(_maxRoomClients.ContainsKey(roomId))
+                                        _maxRoomClients[roomId] = (limit, 1);
+                                    else
+                                        _maxRoomClients.Add(roomId, (limit, 1));
+                                    if(_roomClients.ContainsKey(roomId))
+                                        _roomClients[roomId] = clients;
+                                    else
+                                        _roomClients.Add(roomId, clients);
+                                    if(_clientAtRoom.ContainsKey(client))
+                                        _clientAtRoom[client] = roomId;
+                                    else
+                                        _clientAtRoom.Add(client, roomId);
                                     response = await SendMessageAndWaitResponse(Constants.ACK, client);
+                                    
                                 }catch(Exception ex){
                                     _logger.LogError(ex.Message);
                                     await SendMessage(Constants.NACK, client);
-                                    ClearRoom(roomId);         
+                                    _monitor.ChangeRoomStatus(room, STATUS.FAIL);
+                                    ClearRoom(roomId);
                                 }
                             }else{
                                 (int roomLimit, int currentCount) = _maxRoomClients[roomId];
@@ -258,14 +293,15 @@ public class ServerSocket{
         Console.WriteLine(response);
         return response;
     }
-    private async void WaitRoom (Object roomId){
+    private async void WaitRoom (int roomId, int difficult = 8){
         await Task.Delay(500);
         try{
-            int id = Convert.ToInt32(roomId);
+            int id = roomId;
             // Wait room
             bool isFull = false;
             var connectedClients = _roomClients[id];
             (int limit, int clientsConnected) = _maxRoomClients[id];
+            _monitor.ChangeRoomStatus(_rooms[id], STATUS.CONNECTING);
             while(!isFull){
                 connectedClients = _roomClients[id];
                 (limit, clientsConnected) = _maxRoomClients[id];
@@ -273,28 +309,37 @@ public class ServerSocket{
                 await SendMessageToClients($"{Constants.WAIT}-Waiting for fullfill the room; current clients: {clientsConnected}/{limit}", connectedClients);
                 if(clientsConnected >= limit) isFull = true;
                 if(clientsConnected == 0){
+                    _monitor.ChangeRoomStatus(_rooms[id], STATUS.STOPPED);
                     ClearRoom(id);
                     break;
                 }
                 await Task.Delay(1000);
             }
             if(clientsConnected == 0 && _maxRoomClients.ContainsKey(id) && _roomClients.ContainsKey(id) && _rooms.ContainsKey(id)){
+                _monitor.ChangeRoomStatus(_rooms[id], STATUS.STOPPED);
                 ClearRoom(id);
                 return;
             }
             List<Socket> onlineClients = new();
             foreach(var client in connectedClients){
                 if(_monitor.IsActive(client)){
-                    await SendMessage($"{Constants.START}", client);
+                    await SendMessage($"{Constants.START}-{difficult}", client);
                     onlineClients.Add(client);
                 }
             }
-            await VSGame(id, onlineClients);
+            await VSGame(id, onlineClients, difficult);
             if(_maxRoomClients.ContainsKey(id) && _roomClients.ContainsKey(id) && _rooms.ContainsKey(id)){
+                _monitor.ChangeRoomStatus(_rooms[id], STATUS.STOPPED);
                 ClearRoom(id);
             }
         }catch(Exception ex){
-            _logger.LogCritical(ex.Message);
+            try{
+                _monitor.ChangeRoomStatus(_rooms[Convert.ToInt32(roomId)], STATUS.FAIL);
+            }catch(Exception exi){
+                _logger.LogWarning(exi.Message);
+            }finally{
+                _logger.LogCritical(ex.Message);
+            }
         }
     }
     private async Task SendMessageToClients(string message, List<Socket> clients){
@@ -303,13 +348,13 @@ public class ServerSocket{
             if(_monitor.IsActive(client))
                 await SendMessage(message, client);
     }
-    private async Task VSGame(int roomId, List<Socket> clients){
+    private async Task VSGame(int roomId, List<Socket> clients, int difficult = 8){
         try{
+            _monitor.ChangeRoomStatus(_rooms[roomId], STATUS.IN_PROGRES);
             bool endGame = false;
-            Dictionary<string, string> keyWords = new();
-            int totalWords = 0, difficult = 8, foundedWords = 0;
+            Dictionary<string, string> keyWords = new(), playersAnswers = new();
+            int totalWords = 0, foundedWords = 0;
             Dictionary<Socket, int> scores = new();
-            Dictionary<string, string> playersAnswers = new();
             string currentPlayer = "", currentWord = "", lastWord = "";
             _logger.LogInformation("Setting map...");
             await SendMessageToClients("Setting map...", clients);
@@ -346,7 +391,8 @@ public class ServerSocket{
                     
             }
             string? message = "", currentIdRecieved = "";
-            while(!endGame){
+            while(!endGame && !_cancellationToken.IsCancellationRequested){
+                Console.WriteLine(_cancellationToken.IsCancellationRequested);
                 try{
                     bool roomFull = VerifyClients(clients), mainDisconnect = false;
                     _logger.LogCritical($"Room full {roomFull}");
@@ -366,7 +412,11 @@ public class ServerSocket{
                         }
                         if(mainDisconnect){
                             clients.RemoveAt(firstPlayerIndex);
-                            await SendMessageToClients($"{Constants.ACK}-The player with turn, disconnect, choosing other player", clients);
+                            roomFull = VerifyClients(clients);
+                            if(!roomFull)
+                                await SendMessageToClients($"{Constants.ERROR}-The player with turn, disconnect, choosing other player", clients);
+                            else
+                                await SendMessageToClients($"{Constants.ACK}-The player with turn, disconnect, choosing other player", clients);
                         }
                         if(message != string.Empty && message != null){
                             var player = clients.ElementAt(firstPlayerIndex);
@@ -403,6 +453,7 @@ public class ServerSocket{
                                             currentWord = "";
                                             // PLAYER FAIL
                                             await SendMessageToClients($"{Constants.ACK}-Player fail choosing, next turn", clients);
+                                            await SendMessageToClients($"{Constants.CLEAR}", clients);
                                             int nextPlayerId = GetNextPlayer(firstPlayerIndex, clients.Count);
                                             currentPlayer = GetPlayerId(clients.ElementAt(nextPlayerId));
                                             firstPlayerIndex = nextPlayerId;
@@ -419,6 +470,7 @@ public class ServerSocket{
                                     currentWord = "";
                                     // PLAYER FAIL
                                     await SendMessageToClients($"{Constants.ACK}-Player fail choosing, next turn", clients);
+                                    await SendMessageToClients($"{Constants.CLEAR}", clients);
                                     int nextPlayerId = GetNextPlayer(firstPlayerIndex, clients.Count);
                                     currentPlayer = GetPlayerId(clients.ElementAt(nextPlayerId));
                                     firstPlayerIndex = nextPlayerId;
@@ -428,6 +480,7 @@ public class ServerSocket{
                             }else{
                                 // WRONG MESSAGE FORMAT
                                 await SendMessageToClients($"{Constants.ACK}-Player fail choosing, next turn", clients);
+                                await SendMessageToClients($"{Constants.CLEAR}", clients);
                                 int nextPlayerId = GetNextPlayer(firstPlayerIndex, clients.Count);
                                 currentPlayer = GetPlayerId(clients.ElementAt(nextPlayerId));
                                 firstPlayerIndex = nextPlayerId;
@@ -437,6 +490,7 @@ public class ServerSocket{
                         if(foundedWords >= totalWords) {
                             // NEEDS TO ADD THE PLAYER WHO WON AND SCORES
                             await SendMessageToClients($"{Constants.ACK}-All words found, ending game", clients);
+                            await SendMessageToClients($"{Constants.ACK}-Player: {}")
                             endGame = true;
                             break;
                         }
@@ -450,9 +504,19 @@ public class ServerSocket{
         }catch(Exception ex){   
             _logger.LogCritical(ex.Message); 
             await SendMessageToClients($"{Constants.ERROR}-Something fail while creating the game...", clients);
+            _monitor.ChangeRoomStatus(_rooms[roomId], STATUS.FAIL);
         }finally{
-            _logger.LogInformation($"Clearing data from room {roomId}");
+            _logger.LogInformation($"Clearing da ta from room {roomId}");
+            _monitor.ChangeRoomStatus(_rooms[roomId], STATUS.STOPPED);
             ClearRoom(roomId);
+        }
+    }
+    //First item have the winner and the second, the players list scores
+    private ((Socket, int), List<(Socket, int)>) GetPlayerScores(Dictionary<Socket, int> scores){
+        try{
+            var winner = (scores.OrderBy(p => p.Value).FirstOrDefault())
+        }catch(Exception ex){
+            _logger.LogWarning(ex.Message);
         }
     }
     private bool ClientDisconnectAbrupt(List<Socket> clients, string mainClient){
@@ -484,17 +548,19 @@ public class ServerSocket{
     private void ClearRoom(int id){
         try{
             _logger.LogWarning("No clients into room, cleaning room");
-            if(_rooms[id].IsAlive)
+            if(_rooms.ContainsKey(id)){
+                if(_rooms[id].IsAlive)
                 _rooms[id]?.Join();
-            var clients = _roomClients[id];
-            _rooms.Remove(id);
-            _lastRoomMessage.Remove(id);
-            _maxRoomClients.Remove(id);
-            foreach(var client in clients){
-                _clientAtRoom.Remove(client);
+                var clients = _roomClients[id];
+                _rooms.Remove(id);
+                _lastRoomMessage.Remove(id);
+                _maxRoomClients.Remove(id);
+                foreach(var client in clients){
+                    _clientAtRoom.Remove(client);
+                }
+                _roomClients.Remove(id);
+                _logger.LogInformation("Room removed");
             }
-            _roomClients.Remove(id);
-            _logger.LogInformation("Room removed");
         }catch(Exception ex){
             _logger.LogWarning(ex.Message);
         }
@@ -675,6 +741,22 @@ public class ServerSocket{
             if(!endGame) _logger.LogInformation("Sending response...");
         }catch(Exception ex){
             _logger.LogCritical(ex.Message);
+        }
+    }
+    public void Dispose(){
+        try{
+            _logger.LogInformation("Clossing threads");
+            foreach(var thread in _rooms.Values) thread?.Join();
+            _logger.LogInformation("All threads closed");
+        }catch(Exception ex){
+            _logger.LogError(ex.Message);
+        }finally{
+            _loggerFactory?.Dispose();
+            _clientAtRoom?.Clear();
+            _rooms?.Clear();
+            _lastRoomMessage?.Clear();
+            _maxRoomClients?.Clear();
+            _monitor?.Dispose();
         }
     }
 }
