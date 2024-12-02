@@ -156,6 +156,10 @@ class Program
                                     if(words.ContainsKey(lastCoord)){
                                         words.Remove(lastCoord);
                                     }
+                                }else if(response.Contains(Constants.SCORE)){
+                                    endGame = true;
+                                    turn = "";
+                                    logger.LogInformation($"Your score is: {response.Split('-')[1]}");
                                 }else if(turn.Equals(id)){
                                     logger.LogInformation($"Its your turn (You are: {id})");
                                     do{
@@ -169,7 +173,8 @@ class Program
                                 }else{
                                     logger.LogInformation(response.Split('-')[1]);
                                 }
-                                response = await socket.WaitMessage();
+                                if(!endGame)
+                                    response = await socket.WaitMessage();
                                 if(response.Contains(Constants.COORD)){
                                     var unzipped = response.Split('-');
                                     if(!words.ContainsKey(unzipped[1])){

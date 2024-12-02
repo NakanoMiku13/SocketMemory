@@ -209,7 +209,12 @@ public class ServerSocket{
                             }else{
                                 roomId = Convert.ToInt32(num);
                             }
-                            if(!_rooms.ContainsKey(roomId)){
+                            if(difficult % 2 != 0){
+                                await SendMessage($"{Constants.ERROR}-The difficult must be a even", client);
+                                notvalid = true;
+                                break;
+                            }
+                            else if(!_rooms.ContainsKey(roomId)){
                                 limit = limit < 2 ? 2 : limit;
                                 _logger.LogInformation($"Client acquire room with: {limit} spaces (Default 2)");
                                 _logger.LogInformation($"The room with Id: {roomId} do not exists, creating one...");
@@ -490,7 +495,8 @@ public class ServerSocket{
                         if(foundedWords >= totalWords) {
                             // NEEDS TO ADD THE PLAYER WHO WON AND SCORES
                             await SendMessageToClients($"{Constants.ACK}-All words found, ending game", clients);
-                            await SendMessageToClients($"{Constants.ACK}-Player: {}")
+                            await GetPlayerScores(scores, clients);
+                            //await SendMessageToClients($"{Constants.ACK}-Player: {}")
                             endGame = true;
                             break;
                         }
@@ -512,9 +518,11 @@ public class ServerSocket{
         }
     }
     //First item have the winner and the second, the players list scores
-    private ((Socket, int), List<(Socket, int)>) GetPlayerScores(Dictionary<Socket, int> scores){
+    private async Task GetPlayerScores(Dictionary<Socket, int> scores, List<Socket> clients){
         try{
-            var winner = (scores.OrderBy(p => p.Value).FirstOrDefault())
+            foreach(var player in clients) 
+                if(_monitor.IsActive(player)) 
+                    await SendMessage($"{Constants.SCORE}-{(scores.ContainsKey(player) ? scores[player] : 0)}", player);
         }catch(Exception ex){
             _logger.LogWarning(ex.Message);
         }
