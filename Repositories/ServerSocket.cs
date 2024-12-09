@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Net;
 using System.Net.Sockets;
@@ -40,12 +41,11 @@ public class ServerSocket{
     private List<Task> _clients;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger _logger;
-    private readonly int _options = 3;
     private Dictionary<int, Thread> _rooms;
     private Dictionary<Socket, int> _clientAtRoom;
     private Dictionary<int, List<Socket>> _roomClients;
-    private Dictionary<int, (int, int)> _maxRoomClients;
-    private Dictionary<int, (string, string)> _lastRoomMessage;
+    private ConcurrentDictionary<int, (int, int)> _maxRoomClients;
+    private ConcurrentDictionary<int, (string, string)> _lastRoomMessage;
     private readonly Monitor _monitor;
     private readonly CancellationToken _cancellationToken;
     private Thread _roomCleaner;
@@ -109,28 +109,6 @@ public class ServerSocket{
             }
             await Task.Delay(1000);
         }
-    }
-    private async Task<Socket?> AcceptClient(int timeout = 15){
-        var client = _socket.AcceptAsync();
-        var timeoutDelay = Task.Delay(timeout * 1000);
-        if(await Task.WhenAny(client, timeoutDelay) == client){
-            _logger.LogInformation("Incoming connection detected");
-            return await client;
-        }else{
-            return null;
-        }
-    }
-    private async void NewClient(){
-        var client = await AcceptClient();
-        if(client != null){
-            _monitor.AddClient(client);
-            if(client.Connected){
-                await _monitor.ChangeClientStatus(client, STATUS.CONNECTED);
-                _clients.Add(StartConnection(client));
-            }else{
-                await _monitor.ChangeClientStatus(client, STATUS.FAIL);
-            }
-        }
     }   
     public async Task AcceptClientMainMenu(){
         var client = await _socket.AcceptAsync(_cancellationToken);
@@ -140,7 +118,7 @@ public class ServerSocket{
                 await _monitor.ChangeClientStatus(client, STATUS.CONNECTED);
                 _clients.Add(StartConnection(client));
             }else{
-                await _monitor.ChangeClientStatus(client, STATUS.FAIL);
+                //await _monitor.ChangeClientStatus(client, STATUS.FAIL);
             }
         }
     }
@@ -231,14 +209,14 @@ public class ServerSocket{
                                     if(_lastRoomMessage.ContainsKey(roomId))
                                         _lastRoomMessage[roomId] = new();
                                     else
-                                        _lastRoomMessage.Add(roomId, new());
+                                        _lastRoomMessage.TryAdd(roomId, new());
                                     List<Socket> clients = new(){
                                         client
                                     };
                                     if(_maxRoomClients.ContainsKey(roomId))
                                         _maxRoomClients[roomId] = (limit, 1);
                                     else
-                                        _maxRoomClients.Add(roomId, (limit, 1));
+                                        _maxRoomClients.TryAdd(roomId, (limit, 1));
                                     if(_roomClients.ContainsKey(roomId))
                                         _roomClients[roomId] = clients;
                                     else
@@ -353,8 +331,10 @@ public class ServerSocket{
             if(_monitor.IsActive(client))
                 await SendMessage(message, client);
     }
-    private async Task VSGame(int roomId, List<Socket> clients, int difficult = 8){
+    private async Task VSGame(int roomId, List<Socket> clientsRef, int difficult = 8){
+        List<Socket> clients = new();
         try{
+            clients.AddRange(clientsRef);
             _monitor.ChangeRoomStatus(_rooms[roomId], STATUS.IN_PROGRES);
             bool endGame = false;
             Dictionary<string, string> keyWords = new(), playersAnswers = new();
@@ -397,7 +377,6 @@ public class ServerSocket{
             }
             string? message = "", currentIdRecieved = "";
             while(!endGame && !_cancellationToken.IsCancellationRequested){
-                Console.WriteLine(_cancellationToken.IsCancellationRequested);
                 try{
                     bool roomFull = VerifyClients(clients), mainDisconnect = false;
                     _logger.LogCritical($"Room full {roomFull}");
@@ -423,7 +402,7 @@ public class ServerSocket{
                             else
                                 await SendMessageToClients($"{Constants.ACK}-The player with turn, disconnect, choosing other player", clients);
                         }
-                        if(message != string.Empty && message != null){
+                        if(message != string.Empty && message != null && currentPlayer.Equals(currentIdRecieved)){
                             var player = clients.ElementAt(firstPlayerIndex);
                             _logger.LogInformation("Player send coordinates");
                             if(message.Contains(Constants.COORD)){
@@ -493,7 +472,6 @@ public class ServerSocket{
                             }
                         }
                         if(foundedWords >= totalWords) {
-                            // NEEDS TO ADD THE PLAYER WHO WON AND SCORES
                             await SendMessageToClients($"{Constants.ACK}-All words found, ending game", clients);
                             await GetPlayerScores(scores, clients);
                             //await SendMessageToClients($"{Constants.ACK}-Player: {}")
@@ -512,7 +490,7 @@ public class ServerSocket{
             await SendMessageToClients($"{Constants.ERROR}-Something fail while creating the game...", clients);
             _monitor.ChangeRoomStatus(_rooms[roomId], STATUS.FAIL);
         }finally{
-            _logger.LogInformation($"Clearing da ta from room {roomId}");
+            _logger.LogInformation($"Clearing data from room {roomId}");
             _monitor.ChangeRoomStatus(_rooms[roomId], STATUS.STOPPED);
             ClearRoom(roomId);
         }
@@ -561,8 +539,10 @@ public class ServerSocket{
                 _rooms[id]?.Join();
                 var clients = _roomClients[id];
                 _rooms.Remove(id);
-                _lastRoomMessage.Remove(id);
-                _maxRoomClients.Remove(id);
+                var temp = _lastRoomMessage[id];
+                _lastRoomMessage.TryRemove(id, out temp);
+                var aux = _maxRoomClients[id];
+                _maxRoomClients.TryRemove(id, out aux);
                 foreach(var client in clients){
                     _clientAtRoom.Remove(client);
                 }
@@ -674,8 +654,8 @@ public class ServerSocket{
                         _logger.LogInformation("Getting code...");
                         if(response.Contains("-")){
                             responseSplitted = response.Split('-');
-                            code = responseSplitted[0];    
-                            content = responseSplitted[1];
+                            code = responseSplitted[0] ?? string.Empty;
+                            content = responseSplitted[1] ?? string.Empty;
                         }else{
                             code = response;
                         }

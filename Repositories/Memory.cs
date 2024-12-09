@@ -6,7 +6,7 @@ public class Memory{
     public Memory(int size = 4)
     {
         _size = size;
-    
+        _words = new();
     }
     
 }

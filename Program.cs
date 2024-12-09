@@ -131,7 +131,7 @@ class Program
                             }else{
                                 logger.LogInformation(response);
                             }
-                        }while(!response.Contains(Constants.START));
+                        }while(!response.Contains(Constants.START) && !cancellationToken.Token.IsCancellationRequested);
                         bool endGame = false;
                         difficult = 8;
                         if(response.Contains(Constants.START)){
@@ -163,8 +163,8 @@ class Program
                                 }else if(turn.Equals(id)){
                                     logger.LogInformation($"Its your turn (You are: {id})");
                                     do{
-                                        message = Console.ReadLine();
-                                    }while(message == string.Empty);
+                                        message = Console.ReadLine() ?? string.Empty;
+                                    }while(message == string.Empty && !cancellationToken.Token.IsCancellationRequested);
                                     if(message != null && message.Contains(':')){
                                         await socket.SendMessage($"{Constants.PLAYER_ID}-{roomId}-{id}-{Constants.COORD}_{message}");
                                     }else{
